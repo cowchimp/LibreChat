@@ -1,0 +1,127 @@
+services:
+  mongodb:
+    container_name: chat-mongodb
+    image: mongo:8.0
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    command: mongod --noauth
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  meilisearch:
+    container_name: chat-meilisearch
+    image: getmeili/meilisearch:v1.35.1
+    restart: unless-stopped
+    environment:
+      - MEILI_HOST=http://meilisearch:7700
+      - MEILI_NO_ANALYTICS=true
+      - MEILI_MASTER_KEY=masterKey123
+    volumes:
+      - meili_data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:7700/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Install dependencies as a one-shot service
+  npm-install:
+    image: node:24
+    working_dir: /app
+    volumes:
+      - .:/app
+      - node_modules_root:/app/node_modules
+      - node_modules_api:/app/api/node_modules
+      - node_modules_client:/app/client/node_modules
+      - node_modules_dp:/app/packages/data-provider/node_modules
+      - node_modules_ds:/app/packages/data-schemas/node_modules
+      - node_modules_pkgapi:/app/packages/api/node_modules
+      - node_modules_pkgclient:/app/packages/client/node_modules
+    command: >
+      sh -c "
+        npm install --ignore-scripts 2>&1 | tail -5 &&
+        npm run build:packages 2>&1 | tail -20 &&
+        echo 'Dependencies installed and packages built successfully'
+      "
+    environment:
+      - NODE_OPTIONS=--max-old-space-size=4096
+
+  api:
+    image: node:24
+    working_dir: /app
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+      npm-install:
+        condition: service_completed_successfully
+    volumes:
+      - .:/app
+      - node_modules_root:/app/node_modules
+      - node_modules_api:/app/api/node_modules
+      - node_modules_client:/app/client/node_modules
+      - node_modules_dp:/app/packages/data-provider/node_modules
+      - node_modules_ds:/app/packages/data-schemas/node_modules
+      - node_modules_pkgapi:/app/packages/api/node_modules
+      - node_modules_pkgclient:/app/packages/client/node_modules
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3080
+      - NODE_ENV=development
+      - MONGO_URI=mongodb://mongodb:27017/LibreChat
+      - MEILI_HOST=http://meilisearch:7700
+      - MEILI_MASTER_KEY=masterKey123
+      - NODE_OPTIONS=--max-old-space-size=4096
+    env_file:
+      - .env
+    command: >
+      sh -c "npx nodemon api/server/index.js"
+    restart: unless-stopped
+
+  client:
+    image: node:24
+    working_dir: /app/client
+    ports:
+      - "3000:3090"
+    depends_on:
+      npm-install:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
+    volumes:
+      - .:/app
+      - node_modules_root:/app/node_modules
+      - node_modules_api:/app/api/node_modules
+      - node_modules_client:/app/client/node_modules
+      - node_modules_dp:/app/packages/data-provider/node_modules
+      - node_modules_ds:/app/packages/data-schemas/node_modules
+      - node_modules_pkgapi:/app/packages/api/node_modules
+      - node_modules_pkgclient:/app/packages/client/node_modules
+    environment:
+      - HOST=api
+      - PORT=3090
+      - BACKEND_PORT=3080
+      - NODE_ENV=development
+      - VITE_ALLOWED_HOSTS=all
+      - NODE_OPTIONS=--max-old-space-size=4096
+      - DOMAIN_CLIENT=http://localhost:3000
+      - ALLOW_REGISTRATION=true
+    command: >
+      sh -c "npx cross-env NODE_ENV=development vite --host 0.0.0.0 --port 3090"
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  meili_data:
+  node_modules_root:
+  node_modules_api:
+  node_modules_client:
+  node_modules_dp:
+  node_modules_ds:
+  node_modules_pkgapi:
+  node_modules_pkgclient:
