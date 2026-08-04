@@ -3,5 +3,5 @@
   "healthPath": "/",
   "startCommand": "docker compose -f docker-compose.base44.yml up -d",
   "secrets": [],
-  "verifiedAtCommit": "120ee2afa6579fa1efa28dfb69d99fa7e9a4c040"
+  "verifiedAtCommit": "027a270d6cb521727b62c43e70cfa09b1b8a6f1c"
 }
