@@ -4,8 +4,9 @@ When adding or changing code that mutates user documents, invalidate the auth us
 
 ## Base44 Dev Setup Notes
 
-- Vite dev server (port 3090) proxies `/api` and `/oauth` to the backend (port 3080). Both run in the same container so the proxy targets `localhost:3080`.
-- The `VITE_ALLOWED_HOSTS=all` env var is mapped to `allowedHosts: true` in `client/vite.config.ts` to allow external preview hostnames.
-- MongoDB and MeiliSearch run as separate compose services. RAG API and vectordb are optional and not included in the dev setup.
-- Node modules are stored in named Docker volumes to persist across container recreations. The setup service runs `npm ci` + turborepo build for all packages except the frontend client.
-- AI provider API keys default to `user_provided` which means users enter them in the LibreChat UI settings.
+- Vite runs from live source on port 3090 (published as port 3000) and proxies `/api` and `/oauth` to the separate `backend` service on port 3080.
+- `BACKEND_HOST` separates the Vite proxy target from Vite's `HOST=0.0.0.0` listen address; `VITE_ALLOWED_HOSTS=all` permits external preview hostnames.
+- MongoDB and MeiliSearch are local compose services. RAG API and vectordb are optional and are not needed for the preview.
+- The backend requires `client/dist/index.html` even with Vite serving the UI, so setup copies a placeholder after building workspace packages.
+- Node modules are kept in named volumes. AI provider keys default to `user_provided`, allowing users to enter keys in LibreChat instead of requiring boot-time secrets.
+- Verify with `curl -H 'Host: external-preview.example.com' http://localhost:3000/` and `curl http://localhost:3000/api/config`.
