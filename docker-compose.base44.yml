@@ -1,0 +1,120 @@
+services:
+  mongodb:
+    image: mongo:8.0.20
+    restart: unless-stopped
+    command: mongod --noauth
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.35.1
+    restart: unless-stopped
+    environment:
+      MEILI_NO_ANALYTICS: "true"
+      MEILI_MASTER_KEY: base44-local-meilisearch-key
+    volumes:
+      - meili_data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  setup:
+    image: node:24.16.0-alpine
+    working_dir: /app
+    volumes: &app-volumes
+      - .:/app
+      - node_modules:/app/node_modules
+      - client_node_modules:/app/client/node_modules
+      - api_node_modules:/app/api/node_modules
+      - dp_node_modules:/app/packages/data-provider/node_modules
+      - ds_node_modules:/app/packages/data-schemas/node_modules
+      - pa_node_modules:/app/packages/api/node_modules
+      - pc_node_modules:/app/packages/client/node_modules
+    environment:
+      NODE_OPTIONS: --max-old-space-size=4096
+    command: >
+      sh -c "
+        if [ ! -f node_modules/.package-lock.json ] || ! diff -q package-lock.json node_modules/.package-lock.json >/dev/null 2>&1; then
+          npm ci --no-audit;
+        fi &&
+        npm run build:packages &&
+        mkdir -p client/dist && cp client/index.html client/dist/index.html
+      "
+
+  backend:
+    image: node:24.16.0-alpine
+    working_dir: /app
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+    volumes: *app-volumes
+    env_file:
+      - /run/base44/app.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3080"
+      MONGO_URI: mongodb://mongodb:27017/LibreChat
+      MEILI_HOST: http://meilisearch:7700
+      MEILI_MASTER_KEY: base44-local-meilisearch-key
+      SEARCH: "true"
+      NO_INDEX: "true"
+      ALLOW_EMAIL_LOGIN: "true"
+      ALLOW_REGISTRATION: "true"
+      ALLOW_SOCIAL_LOGIN: "false"
+      ALLOW_SOCIAL_REGISTRATION: "false"
+      ALLOW_UNVERIFIED_EMAIL_LOGIN: "true"
+      JWT_SECRET: base44-local-jwt-secret-for-development-only
+      JWT_REFRESH_SECRET: base44-local-refresh-secret-for-development-only
+      CREDS_KEY: 7c7d2f946f914b28a580e30fe2b218edfa53a1520ce5a26ec7aa80cd35910e3f
+      CREDS_IV: 41b69d506ef147d2
+      DOMAIN_CLIENT: https://3000-${BASE44_PUBLIC_HOST_SUFFIX}
+      DOMAIN_SERVER: https://3000-${BASE44_PUBLIC_HOST_SUFFIX}
+      OPENAI_API_KEY: user_provided
+      ANTHROPIC_API_KEY: user_provided
+      GOOGLE_KEY: user_provided
+      NODE_ENV: development
+    command: npx nodemon --ignore client/ --ignore packages/ api/server/index.js
+    restart: unless-stopped
+
+  frontend:
+    image: node:24.16.0-alpine
+    working_dir: /app/client
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+      backend:
+        condition: service_started
+    ports:
+      - "3000:3090"
+    volumes: *app-volumes
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3090"
+      BACKEND_HOST: backend
+      BACKEND_PORT: "3080"
+      VITE_ALLOWED_HOSTS: all
+      NODE_ENV: development
+    command: npm run dev
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  meili_data:
+  node_modules:
+  client_node_modules:
+  api_node_modules:
+  dp_node_modules:
+  ds_node_modules:
+  pa_node_modules:
+  pc_node_modules:
