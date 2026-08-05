@@ -1,0 +1,91 @@
+services:
+  setup:
+    image: node:24.16.0-bookworm-slim
+    working_dir: /app
+    command: >-
+      sh -c "npm ci &&
+      npm run build:packages &&
+      npm run build:client"
+    environment:
+      NODE_OPTIONS: --max-old-space-size=8192
+    volumes: &app-volumes
+      - .:/app
+      - node_modules:/app/node_modules
+      - api_node_modules:/app/api/node_modules
+      - client_node_modules:/app/client/node_modules
+      - api_package_node_modules:/app/packages/api/node_modules
+      - client_package_node_modules:/app/packages/client/node_modules
+      - data_provider_node_modules:/app/packages/data-provider/node_modules
+      - data_schemas_node_modules:/app/packages/data-schemas/node_modules
+
+  app:
+    image: node:24.16.0-bookworm-slim
+    working_dir: /app
+    init: true
+    command: >-
+      sh -c "PORT=3080 npm run backend:dev &
+      backend_pid=$$!;
+      trap 'kill $$backend_pid 2>/dev/null || true' EXIT INT TERM;
+      PORT=3000 npm run frontend:dev"
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+      mongodb:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      HOST: 0.0.0.0
+      BACKEND_PORT: 3080
+      VITE_ALLOWED_HOSTS: 3000-${BASE44_PUBLIC_HOST_SUFFIX},external-preview.example.com
+      MONGO_URI: mongodb://mongodb:27017/LibreChat
+      MEILI_HOST: http://meilisearch:7700
+      MEILI_MASTER_KEY: base44-local-meilisearch-key
+      DOMAIN_CLIENT: https://3000-${BASE44_PUBLIC_HOST_SUFFIX}
+      DOMAIN_SERVER: https://3000-${BASE44_PUBLIC_HOST_SUFFIX}
+      ALLOW_EMAIL_LOGIN: "true"
+      ALLOW_REGISTRATION: "true"
+      ALLOW_SOCIAL_LOGIN: "false"
+      CREDS_KEY: 576bf9f65e470edc9d39dd54633f76753ec2ebf7e72be028bd55b1dff654a15c
+      CREDS_IV: 139d20db7db893f4947deea5e3f0d56f
+      JWT_SECRET: 1b4a12df9f5508b308f4e1f61e24b3c94c7560f930605d9faeea7f424764f780
+      JWT_REFRESH_SECRET: f1baec284b624f924d4d7480ca902579ee9de97d349d190488e83f51530902cb
+      NODE_OPTIONS: --max-old-space-size=4096
+    volumes: *app-volumes
+
+  mongodb:
+    image: mongo:8.0.20
+    command: mongod --noauth --bind_ip_all
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - mongodb_data:/data/db
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.35.1
+    environment:
+      MEILI_NO_ANALYTICS: "true"
+      MEILI_MASTER_KEY: base44-local-meilisearch-key
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:7700/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - meilisearch_data:/meili_data
+
+volumes:
+  node_modules:
+  api_node_modules:
+  client_node_modules:
+  api_package_node_modules:
+  client_package_node_modules:
+  data_provider_node_modules:
+  data_schemas_node_modules:
+  mongodb_data:
+  meilisearch_data:
