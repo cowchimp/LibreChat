@@ -33,7 +33,8 @@ const NODE_POLYFILL_SHIMS: Record<string, string> = {
 const backendPort = (process.env.BACKEND_PORT && Number(process.env.BACKEND_PORT)) || 3080;
 /** IPv6 hosts arrive unbracketed (valid for the listen address) but must be
  *  bracketed inside a URL, or the proxy target parses as host `:` port soup. */
-const backendHost = process.env.HOST?.includes(':') ? `[${process.env.HOST}]` : process.env.HOST;
+const rawBackendHost = process.env.BACKEND_HOST || process.env.HOST;
+const backendHost = rawBackendHost?.includes(':') ? `[${rawBackendHost}]` : rawBackendHost;
 const backendURL = backendHost
   ? `http://${backendHost}:${backendPort}`
   : `http://localhost:${backendPort}`;
@@ -50,7 +51,9 @@ export default defineConfig(({ command }) => ({
   base: '',
   server: {
     allowedHosts:
-      (process.env.VITE_ALLOWED_HOSTS && process.env.VITE_ALLOWED_HOSTS.split(',')) || [],
+      process.env.VITE_ALLOWED_HOSTS === 'all'
+        ? true
+        : (process.env.VITE_ALLOWED_HOSTS && process.env.VITE_ALLOWED_HOSTS.split(',')) || [],
     host: process.env.HOST || 'localhost',
     port: (process.env.PORT && Number(process.env.PORT)) || 3090,
     strictPort: false,
